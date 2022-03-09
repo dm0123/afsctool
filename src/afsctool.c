@@ -2222,12 +2222,6 @@ void printFolderInfo(struct folder_info *folderinfo, bool hardLinkCheck)
 		   getSizeStr(foldersize, foldersize, 0));
 }
 
-void safe_free_ptr(void* ptr)
-{
-    if(ptr != NULL)
-        free(ptr);
-}
-
 void process_folder(FTS *currfolder, struct folder_info *folderinfo)
 {
 	FTSENT *currfile;
@@ -2274,7 +2268,7 @@ void process_folder(FTS *currfolder, struct folder_info *folderinfo)
 							if ((xattrnamesize = listxattr(currfile->fts_path, xattrnames, xattrnamesize, XATTR_SHOWCOMPRESSION | XATTR_NOFOLLOW)) <= 0)
 							{
 								fprintf(stderr, "listxattr: %s\n", strerror(errno));
-								safe_free_ptr(xattrnames);
+								free(xattrnames);
 								continue;
 							}
 							for (curr_attr = xattrnames; curr_attr < xattrnames + xattrnamesize; curr_attr += strlen(curr_attr) + 1)
@@ -2283,13 +2277,13 @@ void process_folder(FTS *currfolder, struct folder_info *folderinfo)
 								if (xattrsize < 0)
 								{
 									fprintf(stderr, "getxattr: %s\n", strerror(errno));
-									safe_free_ptr(xattrnames);
+									// free(xattrnames); // cannot free this memory in cycle, need to do it after
 									continue;
 								}
 								numxattrs++;
 								xattrssize += xattrsize;
 							}
-							safe_free_ptr(xattrnames);
+							free(xattrnames);
 						}
 						folderinfo->total_size += xattrssize;
 						if (!folderinfo->onAPFS) {
