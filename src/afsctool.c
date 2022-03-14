@@ -2035,7 +2035,7 @@ long long process_file_info(const char *filepath, const char *filetype, struct s
 			if (xattrsize < 0)
 			{
 				fprintf(stderr, "getxattr: %s\n", strerror(errno));
-				free(xattrnames);
+				// free(xattrnames); // will be freed after the cycle
 				return 0;
 			}
 			numxattrs++;
@@ -2277,7 +2277,7 @@ void process_folder(FTS *currfolder, struct folder_info *folderinfo)
 								if (xattrsize < 0)
 								{
 									fprintf(stderr, "getxattr: %s\n", strerror(errno));
-									free(xattrnames);
+									// free(xattrnames);
 									continue;
 								}
 								numxattrs++;
@@ -3165,7 +3165,7 @@ next_arg:;
 			if (applycomp)
 			{
 				if ((fileinfo.st_flags & UF_COMPRESSED) == 0) {
-					printf("Unable to compress file %s.\n", fullpath);
+					printf("File compressed already: %s.\n", fullpath);
 				}
 // at this point we could report that the file has been compressed, but that doesn't stroke with non-verbose mode.
 // 				else {
