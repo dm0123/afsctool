@@ -376,6 +376,9 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 	}
 
 #ifdef __APPLE__
+    char* system_volumes_prefix = "/System/Volumes";
+    if(strncmp(system_volumes_prefix, inFile, strlen(system_volumes_prefix)) == 0)
+        return;
 	void (^restoreFile)() = ^{
 		if (write(fdIn, inBuf, filesize) != filesize) {
 			fprintf(stderr, "%s: Error restoring file (%lld bytes; %s)\n", inFile, filesize, strerror(errno));
@@ -428,6 +431,11 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 #ifdef __APPLE__
 	if (chflags(inFile, UF_COMPRESSED | inFileInfo->st_flags) < 0 || chflags(inFile, inFileInfo->st_flags) < 0)
 	{
+        if(errno == EPERM)
+        {
+            folderinfo->num_permission_errors++;
+            return;
+        }
 		fprintf(stderr, "%s: chflags: %s\n", inFile, strerror(errno));
 		return;
 	}
@@ -1806,6 +1814,9 @@ struct filetype_info* getFileTypeInfo(const char *filepath, const char *filetype
 	folderinfo->filetypes[left_pos].compattr_size = 0;
 	folderinfo->filetypes[left_pos].total_size = 0;
 	folderinfo->filetypes[left_pos].num_compressed = 0;
+#ifdef __APPLE__
+    folderinfo->filetypes[left_pos].num_permission_errors = 0;
+#endif
 	folderinfo->filetypes[left_pos].num_files = 0;
 	folderinfo->filetypes[left_pos].num_hard_link_files = 0;
 	add_extension_to_filetypeinfo(filepath, &folderinfo->filetypes[left_pos]);
@@ -2276,6 +2287,13 @@ void process_folder(FTS *currfolder, struct folder_info *folderinfo)
 								xattrsize = getxattr(currfile->fts_path, curr_attr, NULL, 0, 0, XATTR_SHOWCOMPRESSION | XATTR_NOFOLLOW);
 								if (xattrsize < 0)
 								{
+                                    if(errno == EPERM)
+                                    {
+#ifdef __APPLE__
+                                        folderinfo->num_permission_errors++;
+#endif
+                                        continue;
+                                    }
 									fprintf(stderr, "getxattr: %s\n", strerror(errno));
 									// free(xattrnames);
 									continue;
@@ -3202,6 +3220,9 @@ next_arg:;
 			folderinfo.compattr_size = 0;
 			folderinfo.total_size = 0;
 			folderinfo.num_compressed = 0;
+#ifdef __APPLE__
+			folderinfo.num_permission_errors = 0;
+#endif
 			folderinfo.num_files = 0;
 			folderinfo.num_hard_link_files = 0;
 			folderinfo.num_folders = 0;
@@ -3244,6 +3265,9 @@ next_arg:;
 					alltypesinfo.compattr_size = 0;
 					alltypesinfo.total_size = 0;
 					alltypesinfo.num_compressed = 0;
+#ifdef __APPLE__
+					alltypesinfo.num_permission_errors = 0;
+#endif
 					alltypesinfo.num_files = 0;
 					alltypesinfo.num_hard_link_files = 0;
 					for (i = 0; i < folderinfo.numfiletypes; i++)
@@ -3255,6 +3279,9 @@ next_arg:;
 						alltypesinfo.compattr_size += folderinfo.filetypes[i].compattr_size;
 						alltypesinfo.total_size += folderinfo.filetypes[i].total_size;
 						alltypesinfo.num_compressed += folderinfo.filetypes[i].num_compressed;
+#ifdef __APPLE__
+						alltypesinfo.num_permission_errors += folderinfo.filetypes[i].num_permission_errors;
+#endif
 						alltypesinfo.num_files += folderinfo.filetypes[i].num_files;
 						alltypesinfo.num_hard_link_files += folderinfo.filetypes[i].num_hard_link_files;
 						
@@ -3277,6 +3304,9 @@ next_arg:;
 						}
 						if (!folderinfo.invert_filetypelist)
 							printf("Number of HFS+/APFS compressed files: %lld\n", folderinfo.filetypes[i].num_compressed);
+#ifdef __APPLE__
+							printf("Number of permission errors: %lld\n", folderinfo.filetypes[i].num_permission_errors);
+#endif
 						if (printVerbose > 0 && nJobs == 0 && (!folderinfo.invert_filetypelist))
 						{
 							printf("Total number of files: %lld\n", folderinfo.filetypes[i].num_files);
@@ -3318,6 +3348,9 @@ next_arg:;
 						alltypesinfo.compattr_size = folderinfo.compattr_size - alltypesinfo.compattr_size;
 						alltypesinfo.total_size = folderinfo.total_size - alltypesinfo.total_size;
 						alltypesinfo.num_compressed = folderinfo.num_compressed - alltypesinfo.num_compressed;
+#ifdef __APPLE__
+						alltypesinfo.num_permission_errors = folderinfo.num_compressed - alltypesinfo.num_compressed;
+#endif
 						alltypesinfo.num_files = folderinfo.num_files - alltypesinfo.num_files;
 						alltypesinfo.num_hard_link_files = folderinfo.num_hard_link_files - alltypesinfo.num_hard_link_files;
 					}
@@ -3325,6 +3358,9 @@ next_arg:;
 					{
 						printf("\nTotals of file content types\n");
 						printf("Number of HFS+/APFS compressed files: %lld\n", alltypesinfo.num_compressed);
+#ifdef __APPLE__
+						printf("Number of permission errors: %lld\n", alltypesinfo.num_permission_errors);
+#endif
 						if (printVerbose > 0 && nJobs == 0)
 						{
 							printf("Total number of files: %lld\n", alltypesinfo.num_files);
@@ -3366,6 +3402,9 @@ next_arg:;
 						printf("No compressable files in folder\n");
 					else
 						printf("Number of HFS+/APFS compressed files: %lld\n", folderinfo.num_compressed);
+#ifdef __APPLE__
+						printf("Number of permission errors: %lld\n", folderinfo.num_permission_errors);
+#endif
 					if (printVerbose > 0)
 					{
 						printFolderInfo( &folderinfo, hardLinkCheck );
@@ -3379,6 +3418,9 @@ next_arg:;
 				// reset certain fields
 				fi->num_files = 0;
 				fi->num_compressed = 0;
+#ifdef __APPLE__
+				fi->num_permission_errors = 0;
+#endif 
 				fi->uncompressed_size = fi->uncompressed_size_rounded = 0;
 				fi->compressed_size = fi->compressed_size_rounded = 0;
 				fi->total_size = 0;
@@ -3411,6 +3453,9 @@ next_arg:;
 				// reset certain fields
 				fi->num_files = 0;
 				fi->num_compressed = 0;
+#ifdef __APPLE__
+				fi->num_permission_errors = 0;
+#endif
 				fi->uncompressed_size = fi->uncompressed_size_rounded = 0;
 				fi->compressed_size = fi->compressed_size_rounded = 0;
 				fi->total_size = 0;

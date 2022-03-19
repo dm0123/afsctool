@@ -34,6 +34,9 @@ struct folder_info
 	long long int compattr_size;
 	long long int total_size;
 	long long int num_compressed;
+#ifdef __APPLE__
+    long long int num_permission_errors;
+#endif
 	long long int num_files;
 	long long int num_hard_link_files;
 	long long int num_folders;
