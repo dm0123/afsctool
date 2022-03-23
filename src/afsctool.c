@@ -106,6 +106,20 @@ void printFileInfo(const char *filepath, struct stat *fileinfo, bool appliedcomp
 static int darwinMajor = 0;
 #endif
 
+#ifdef __APPLE__
+bool is_sip_enabled = false;
+void execute_csrutil()
+{
+    FILE* p = NULL;
+    char buf[512];
+    p = popen("csrutil status", "r");
+    if(p == NULL)
+        return;
+    if(fgets(buf, sizeof(buf), p) != NULL && strcmp("System Integrity Protection status: enabled.", buf) == 0)
+        is_sip_enabled = true;
+}
+#endif
+
 char* getSizeStr(long long int size, long long int size_rounded, int likeFinder)
 {
 	static char sizeStr[128];
@@ -364,11 +378,15 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 	ssize_t xattrnamesize, outBufSize = 0;
 	UInt32 cmpf = DECMPFS_MAGIC, orig_mode;
 	struct timeval times[2];
+	char rootlessXattrBuf[512];
 #if defined HAS_LZVN || defined HAS_LZFSE
 	void *lz_WorkSpace = NULL;
 #endif
 	bool supportsLargeBlocks;
 	bool useMmap = false;
+#ifdef __APPLE__
+	bool removeSip = false;
+#endif
 
 	if (quitRequested)
 	{
@@ -462,8 +480,17 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 			if ((strcmp(curr_attr, XATTR_RESOURCEFORK_NAME) == 0 && strlen(curr_attr) == 22) ||
 				(strcmp(curr_attr, DECMPFS_XATTR_NAME) == 0 && strlen(curr_attr) == 17))
 				return;
+			if(is_sip_enabled && strcmp(curr_attr, "com.apple.rootless") == 0 && strlen(curr_attr) == sizeof("com.apple.rootless"))
+				removeSip = true;
 		}
 		free(xattrnames);
+	}
+	
+	if(removeSip)
+	{
+		int res = getxattr(inFile, "com.apple.rootless", &rootlessXattrBuf, 512, 0, XATTR_NOFOLLOW);
+		if(res != -1)
+			removexattr(inFile, "com.apple.rootless", XATTR_NOFOLLOW);
 	}
 #endif // APPLE
 
@@ -1195,6 +1222,10 @@ bail:
 	utimes(inFile, times);
 	if (inFileInfo->st_mode != orig_mode) {
 		chmod(inFile, orig_mode);
+	}
+	if(is_sip_enabled && removeSip)
+	{
+		setxattr(inFile, "com.apple.rootless", rootlessXattrBuf, 512, 0, XATTR_NOFOLLOW);
 	}
 #endif
 #ifdef SUPPORT_PARALLEL
@@ -2491,6 +2522,10 @@ int afsctool (int argc, const char * argv[])
 	folderinfo.filetypeslist = NULL;
 	folderinfo.filetypeslistlen = 0;
 	folderinfo.filetypeslistsize = 0;
+
+#ifdef __APPLE__
+    execute_csrutil();
+#endif
 	
 	if (argc < 2)
 	{
