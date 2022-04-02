@@ -517,8 +517,8 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 	fdIn = open(inFile, O_RDWR|O_EXLOCK|O_NONBLOCK);
 	if (fdIn == -1)
 	{
-		fprintf(stderr, "%s: %s\n", inFile, strerror(errno));
-		goto bail;
+	    fprintf(stderr, "%s: %s\n", inFile, strerror(errno));
+	    goto bail;
 	}
 #ifndef NO_USE_MMAP
 	if (useMmap) {
@@ -1119,7 +1119,7 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 		ssize_t checkRead= -2;
 		bool outBufMMapped = false;
 		errno = 0;
-		fdIn = open(inFile, O_RDONLY|O_EXLOCK);
+		fdIn = open(inFile, O_RDONLY|O_EXLOCK|O_NONBLOCK);
 		if (fdIn == -1)
 		{
 			fprintf(stderr, "%s: %s\n", inFile, strerror(errno));
