@@ -756,7 +756,7 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 	if (!fileIsCompressable(inFile, inFileInfo, comptype, &folderinfo->onAPFS)){
 		return;
 	}
-    if((inFileInfo->st_flags | UF_COMPRESSED) == 1){
+    if((inFileInfo->st_flags & UF_COMPRESSED) == UF_COMPRESSED){
         // try to decompress first
         light_decompress(inFile, inFileInfo, folderinfo);
     }
