@@ -259,6 +259,12 @@ void light_decompress(char const* inFile, struct stat *inFileInfo, struct folder
 	    xfree(indecmpfsBuf);
 	    errno = 0;
 	    in = fopen(inFile, "r");
+        if (in && fread(outBuf, filesize, 1, in) != 1) {
+             fprintf(stderr, "%s: decompression failed: %s\n", inFile, strerror(errno));
+             fclose(in);
+            goto bail;
+        }
+    	fclose(in);
     }
     else if(folderinfo->compressiontype != ZLIB && compressionType == CMP_ZLIB_RESOURCE_FORK){
         			if (inBuf == NULL)
@@ -346,64 +352,59 @@ void light_decompress(char const* inFile, struct stat *inFileInfo, struct folder
 				}
 			}
 			removeResourceFork = true;
+            removeResourceFork = false;
     }
     else if(folderinfo->compressiontype != ZLIB && compressionType == CMP_ZLIB_XATTR){
-        const size_t dataStart = sizeof(decmpfs_disk_header) /* 0x10 */;
-			if (indecmpfsLen == dataStart)
+      const size_t dataStart = sizeof(decmpfs_disk_header) /* 0x10 */;
+		if (indecmpfsLen == dataStart)
+		{
+			fprintf(stderr,
+				"%s: Decompression failed; compression type %d expects compressed data in extended attribute com.apple.decmpfs but none exists\n",
+				inFile, CMP_ZLIB_XATTR);
+			goto bail;
+		}
+		uncmpedsize = filesize;
+		if ((*(unsigned char *) (indecmpfsBuf + dataStart)) == 0xFF)
+		{
+			const size_t offset = dataStart + 1;
+			uncmpedsize = indecmpfsLen - offset;
+			memcpy(outBuf, indecmpfsBuf + offset, uncmpedsize);
+		}
+		else
+		{
+			if ((uncmpret = uncompress(outBuf, &uncmpedsize, indecmpfsBuf + dataStart, indecmpfsLen - dataStart)) != Z_OK)
 			{
-				fprintf(stderr,
-					"%s: Decompression failed; compression type %d expects compressed data in extended attribute com.apple.decmpfs but none exists\n",
-					inFile, CMP_ZLIB_XATTR);
-				goto bail;
-			}
-			uncmpedsize = filesize;
-			if ((*(unsigned char *) (indecmpfsBuf + dataStart)) == 0xFF)
-			{
-				const size_t offset = dataStart + 1;
-				uncmpedsize = indecmpfsLen - offset;
-				memcpy(outBuf, indecmpfsBuf + offset, uncmpedsize);
-			}
-			else
-			{
-				if ((uncmpret = uncompress(outBuf, &uncmpedsize, indecmpfsBuf + dataStart, indecmpfsLen - dataStart)) != Z_OK)
+				if (uncmpret == Z_BUF_ERROR)
 				{
-					if (uncmpret == Z_BUF_ERROR)
-					{
-						fprintf(stderr, "%s: Decompression failed; uncompressed data too large\n", inFile);
-						goto bail;
-					}
-					else if (uncmpret == Z_DATA_ERROR)
-					{
-						fprintf(stderr, "%s: Decompression failed; compressed data is corrupted\n", inFile);
-						goto bail;
-					}
-					else if (uncmpret == Z_MEM_ERROR)
-					{
-						fprintf(stderr, "%s: Decompression failed; out of memory\n", inFile);
-						goto bail;
-					}
-					else
-					{
-						fprintf(stderr, "%s: Decompression failed; an error occurred during decompression\n", inFile);
-						goto bail;
-					}
+					fprintf(stderr, "%s: Decompression failed; uncompressed data too large\n", inFile);
+					goto bail;
+				}
+				else if (uncmpret == Z_DATA_ERROR)
+				{
+					fprintf(stderr, "%s: Decompression failed; compressed data is corrupted\n", inFile);
+					goto bail;
+				}
+				else if (uncmpret == Z_MEM_ERROR)
+				{
+					fprintf(stderr, "%s: Decompression failed; out of memory\n", inFile);
+					goto bail;
+				}
+				else
+				{
+					fprintf(stderr, "%s: Decompression failed; an error occurred during decompression\n", inFile);
+					goto bail;
 				}
 			}
-			if (uncmpedsize != filesize)
-			{
-				fprintf(stderr, "%s: Decompression failed; uncompressed data block too small\n", inFile);
+		}
+		if (uncmpedsize != filesize)
+		{
+			fprintf(stderr, "%s: Decompression failed; uncompressed data block too small\n", inFile);
 				goto bail;
-			}
+		}
     }
     else if(folderinfo->compressiontype != ZLIB && (compressionType == CMP_LZVN_RESOURCE_FORK || compressionType == CMP_LZFSE_RESOURCE_FORK)){
         removeResourceFork = true;
     }
-	if (in && fread(outBuf, filesize, 1, in) != 1) {
-		fprintf(stderr, "%s: decompression failed: %s\n", inFile, strerror(errno));
-		fclose(in);
-		goto bail;
-	}
-	fclose(in);
 
     if (chflags(inFile, (~UF_COMPRESSED) & inFileInfo->st_flags) < 0)
 	{
@@ -424,6 +425,7 @@ void light_decompress(char const* inFile, struct stat *inFileInfo, struct folder
 	{
 		fprintf(stderr, "%s: Error writing to file (%lld bytes; %s)\n", inFile, filesize, strerror(errno));
 		fclose(in);
+        inFileInfo->st_size = filesize;
 		if (chflags(inFile, UF_COMPRESSED | inFileInfo->st_flags) < 0)
 		{
 			fprintf(stderr, "%s: chflags: %s\n", inFile, strerror(errno));
@@ -624,7 +626,7 @@ bool fileIsCompressable(const char *inFile, struct stat *inFileInfo, int comptyp
 		(volattrs.volAttrs.capabilities[VOL_CAPABILITIES_FORMAT] & VOL_CAP_FMT_DECMPFS_COMPRESSION) &&
 		(volattrs.volAttrs.valid[VOL_CAPABILITIES_FORMAT] & VOL_CAP_FMT_DECMPFS_COMPRESSION)
 		&& S_ISREG(inFileInfo->st_mode)
-		/*&& (inFileInfo->st_flags & UF_COMPRESSED) == 0*/ );
+		/*&&  (inFileInfo->st_flags & UF_COMPRESSED) == 0*/);
 #else
 	return (ret >= 0
 		&& (!strncasecmp(fsInfo.f_fstypename, "hfs", 3) || _isAPFS)
@@ -756,10 +758,7 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 	if (!fileIsCompressable(inFile, inFileInfo, comptype, &folderinfo->onAPFS)){
 		return;
 	}
-    if((inFileInfo->st_flags & UF_COMPRESSED) == UF_COMPRESSED){
-        // try to decompress first
-        light_decompress(inFile, inFileInfo, folderinfo);
-    }
+    bool check_content_mismatch = true;
 	if (filesize > maxSize && maxSize != 0){
 		if (folderinfo->print_info > 2)
 		{
@@ -1489,8 +1488,13 @@ void compressFile(const char *inFile, struct stat *inFileInfo, struct folder_inf
 			}
 		}
 		xclose(fdIn);
+        if(check_content_mismatch)
+            contentMismatch = false;
+        else
+            contentMismatch = memcmp(outBuf, inBuf, filesize) != 0;
+
 		if (sizeMismatch || readFailure
-			|| (contentMismatch = memcmp(outBuf, inBuf, filesize) != 0))
+			|| contentMismatch)
 		{
 			fprintf(stderr, "\tsize mismatch=%d read=%zd failure=%d content mismatch=%d (%s)\n",
 				sizeMismatch, checkRead, readFailure, contentMismatch, strerror(errno));
